@@ -1,0 +1,6 @@
+{
+  "name": "Vigilant Guard",
+  "description": "Advanced cybersecurity suite and antivirus detector featuring live malware scanning, biometric application security, and end-to-end local encryption.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
