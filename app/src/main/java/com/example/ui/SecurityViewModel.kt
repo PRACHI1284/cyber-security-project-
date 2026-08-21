@@ -162,7 +162,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                 if (bloomFilter.mightContain(pkgInfo.packageName)) {
                     val matches = signatureEngine.search(pkgInfo.packageName)
                     if (matches.isNotEmpty()) {
-                        signatureHit = "Signature matched: " + matches.keys.joinToString(", ")
+                        signatureHit = "Signature matched: " + matches.joinToString(", ")
                     }
                 }
 

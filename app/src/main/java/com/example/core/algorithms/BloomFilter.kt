@@ -3,6 +3,9 @@ package com.example.core.algorithms
 import java.security.MessageDigest
 import java.util.BitSet
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.ln
+import kotlin.math.round
 
 /**
  * A probabilistic data structure for extremely fast subset membership testing.
@@ -13,8 +16,8 @@ import kotlin.math.abs
  */
 class BloomFilter(private val expectedElements: Int = 10000, private val falsePositiveProbability: Double = 0.01) {
 
-    private val bitSetSize: Int = Math.ceil(-(expectedElements * Math.log(falsePositiveProbability)) / (Math.log(2.0) * Math.log(2.0))).toInt()
-    private val hashFunctionsCount: Int = Math.round((bitSetSize / expectedElements.toDouble()) * Math.log(2.0)).toInt()
+    private val bitSetSize: Int = ceil(-(expectedElements * ln(falsePositiveProbability)) / (ln(2.0) * ln(2.0))).toInt()
+    private val hashFunctionsCount: Int = round((bitSetSize / expectedElements.toDouble()) * ln(2.0)).toInt()
 
     private val bitSet = BitSet(bitSetSize)
     private val md5Digest = MessageDigest.getInstance("MD5")
