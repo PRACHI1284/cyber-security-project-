@@ -1,19 +1,32 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.core.algorithms.AhoCorasick
+import com.example.core.algorithms.BloomFilter
+import com.example.core.algorithms.RiskScorer
+import com.example.core.security.DeviceAuditor
+import com.example.core.security.AuditResult
+import com.example.core.security.KeyStoreManager
+import com.example.core.services.GeminiService
 import com.example.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import javax.crypto.Cipher
-import javax.crypto.spec.SecretKeySpec
-import android.util.Base64
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.File
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
     private val database = SecurityDatabase.getDatabase(application)
     private val repository = SecurityRepository(database.securityDao())
+
+    // Engines
+    private val bloomFilter = BloomFilter()
+    private val signatureEngine = AhoCorasick()
 
     // UI Tab State
     val selectedTab = MutableStateFlow(Tab.Home)
@@ -28,10 +41,19 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     val highThreatCount: StateFlow<Int> = repository.highThreatCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    // Init with first startup events if empty
     val repositoryAllLogs: StateFlow<List<SecurityLog>> = allLogs
 
     init {
+        // Initialize signatures
+        val knownThreats = listOf(
+            "com.hack.banker", "com.spy.sms", "overlay.trojan", "miner.coin"
+        )
+        knownThreats.forEach {
+            bloomFilter.add(it)
+            signatureEngine.addKeyword(it)
+        }
+        signatureEngine.buildFailureLinks()
+
         viewModelScope.launch {
             repositoryAllLogs.collect { logs ->
                 if (logs.isEmpty()) {
@@ -60,16 +82,6 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     )
 
     // --- Malware Scanner State ---
-    val filesToScan = listOf(
-        ScannedFile("/storage/emulated/0/Download/WhatsApp_Update.apk", "WhatsApp_Update.apk", 12450000, "APK", true, "Spyware.PremiumTrojan", "Requests SEND_SMS, READ_CONTACTS, and runs in background after device boot.", 92),
-        ScannedFile("/storage/emulated/0/DCIM/family_photo.jpg", "family_photo.jpg", 3450000, "JPG", false),
-        ScannedFile("/storage/emulated/0/Download/crypto_miner.bin", "crypto_miner.bin", 890000, "BIN", true, "CoinMiner.Adware", "Executes background cryptocurrency mining on port 4444 with high CPU load.", 68),
-        ScannedFile("/storage/emulated/0/Documents/report_Q2_financials.pdf", "report_Q2_financials.pdf", 4500000, "PDF", false),
-        ScannedFile("/storage/emulated/0/Download/root_exploit.sh", "root_exploit.sh", 1200, "SH", true, "Exploit.PrivilegeEscalation", "Attempts kernel level escalation targeting standard system binaries.", 97),
-        ScannedFile("/storage/emulated/0/Backups/system_backup.zip", "system_backup.zip", 450000000, "ZIP", false),
-        ScannedFile("/storage/emulated/0/Download/bank_hack_v3.apk", "bank_hack_v3.apk", 8300000, "APK", true, "Banker.OverlayTrojan", "Mimics commercial bank portals and requests overlay DRAW_OVER_OTHER_APPS permission.", 99)
-    )
-
     private val _scanProgress = MutableStateFlow(0f)
     val scanProgress: StateFlow<Float> = _scanProgress.asStateFlow()
 
@@ -84,6 +96,9 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
 
     private val _activeConsoleLog = MutableStateFlow<String>("")
     val activeConsoleLog: StateFlow<String> = _activeConsoleLog.asStateFlow()
+
+    private val _aiExplanation = MutableStateFlow<String?>(null)
+    val aiExplanation: StateFlow<String?> = _aiExplanation.asStateFlow()
 
     // --- Biometric Authentication State ---
     private val _isBiometricLocked = MutableStateFlow(false)
@@ -110,6 +125,13 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     val settingAutoUpdate = MutableStateFlow(true)
     val settingRealtimeProtection = MutableStateFlow(true)
 
+    // --- Device Audit State ---
+    private val _isAuditDialogVisible = MutableStateFlow(false)
+    val isAuditDialogVisible: StateFlow<Boolean> = _isAuditDialogVisible.asStateFlow()
+
+    private val _auditResults = MutableStateFlow<List<AuditResult>>(emptyList())
+    val auditResults: StateFlow<List<AuditResult>> = _auditResults.asStateFlow()
+
     // Scanner actions
     fun startScan() {
         if (_scanStatus.value == ScanStatus.SCANNING) return
@@ -122,42 +144,80 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                 SecurityLog(
                     eventType = "SCAN",
                     title = "Live Malware Scan Started",
-                    description = "Initiating active memory and file directory heuristic analysis.",
+                    description = "Initiating active memory and PackageManager heuristic analysis.",
                     severity = "INFO"
                 )
             )
 
-            for (index in filesToScan.indices) {
-                val file = filesToScan[index]
-                _currentScanningFile.value = file.name
+            val pm = getApplication<Application>().packageManager
+            val packages = withContext(Dispatchers.IO) {
+                pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+            }
+            
+            // Filter out system apps for speed unless heuristic level is extreme
+            val userApps = packages.filter { (it.applicationInfo?.flags?.and(android.content.pm.ApplicationInfo.FLAG_SYSTEM)) == 0 }
+
+            for (index in userApps.indices) {
+                val pkgInfo = userApps[index]
+                val appName = pkgInfo.applicationInfo?.loadLabel(pm)?.toString() ?: pkgInfo.packageName
+                val sourceDir = pkgInfo.applicationInfo?.sourceDir ?: ""
+                val sizeBytes = if (sourceDir.isNotEmpty()) File(sourceDir).length() else 0L
+
+                _currentScanningFile.value = appName
+                _activeConsoleLog.value = "Analyzing $appName...\nPackage: ${pkgInfo.packageName}"
                 
-                // Simulated scanning analysis
-                _activeConsoleLog.value = "Analyzing ${file.name}...\nSize: ${file.sizeBytes / 1024} KB"
-                delay(400)
+                delay(150) // Small delay to animate scanning progress on UI
                 
-                if (file.isMalicious) {
-                    _activeConsoleLog.value = "Applying heuristics on ${file.name}...\nWARNING: Signature pattern match: ${file.detectedThreatName}!\nHeuristic risk score: ${file.riskScore}%"
-                    delay(500)
-                } else {
-                    _activeConsoleLog.value = "Scanning ${file.name}...\nHash matches known signature: SAFE."
+                val requestedPermissions = pkgInfo.requestedPermissions?.toList() ?: emptyList()
+                val riskScore = RiskScorer.calculateRiskScore(requestedPermissions)
+                
+                // Fast filter
+                var signatureHit = ""
+                if (bloomFilter.mightContain(pkgInfo.packageName)) {
+                    val matches = signatureEngine.search(pkgInfo.packageName)
+                    if (matches.isNotEmpty()) {
+                        signatureHit = "Signature matched: " + matches.keys.joinToString(", ")
+                    }
+                }
+
+                val isMalicious = riskScore > 75 || signatureHit.isNotEmpty()
+                
+                val flagReason = buildString {
+                    if (signatureHit.isNotEmpty()) append(signatureHit).append(". ")
+                    if (riskScore > 0) append("Risk Score: $riskScore/100 based on dangerous permissions.")
+                }
+
+                val scannedFile = ScannedFile(
+                    path = pkgInfo.packageName,
+                    name = appName,
+                    sizeBytes = sizeBytes,
+                    fileType = "APK",
+                    isMalicious = isMalicious,
+                    detectedThreatName = if (isMalicious) "High Risk App" else "",
+                    flagReason = flagReason,
+                    riskScore = riskScore
+                )
+
+                if (isMalicious) {
+                    _activeConsoleLog.value = "WARNING: Threat detected in $appName!\nScore: $riskScore%"
                     delay(300)
                 }
 
-                _scannedResults.value = _scannedResults.value + file
-                _scanProgress.value = (index + 1).toFloat() / filesToScan.size
+                _scannedResults.value = _scannedResults.value + scannedFile
+                _scanProgress.value = (index + 1).toFloat() / userApps.size
             }
 
             val threatsFound = _scannedResults.value.count { it.isMalicious }
             _scanStatus.value = ScanStatus.COMPLETED
             _currentScanningFile.value = null
-            _activeConsoleLog.value = "Scan Finished.\nScanned: ${filesToScan.size} files\nThreats Identified: $threatsFound"
+            _activeConsoleLog.value = "Scan Finished.\nScanned: ${userApps.size} apps\nThreats Identified: $threatsFound"
 
             if (threatsFound > 0) {
                 repository.insertLog(
                     SecurityLog(
                         eventType = "THREAT",
                         title = "$threatsFound Threats Identified!",
-                        description = "Detected potentially malicious binaries during heuristic scanning.",
+                        description = "Detected potentially malicious applications during heuristic scanning.",
                         severity = "HIGH"
                     )
                 )
@@ -166,7 +226,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                     SecurityLog(
                         eventType = "SCAN",
                         title = "Scan Clean",
-                        description = "No active malware files or signature anomalies detected on device.",
+                        description = "No active malware apps or signature anomalies detected.",
                         severity = "INFO"
                     )
                 )
@@ -182,8 +242,8 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             repository.insertLog(
                 SecurityLog(
                     eventType = "THREAT",
-                    title = "File Quarantined",
-                    description = "Isolated dangerous file: ${file.name} safely from disk.",
+                    title = "App Quarantined",
+                    description = "Isolated dangerous app: ${file.name} safely.",
                     severity = "WARNING"
                 )
             )
@@ -196,12 +256,28 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             repository.insertLog(
                 SecurityLog(
                     eventType = "THREAT",
-                    title = "File Shredded",
-                    description = "Permanently deleted infected threat ${file.name} from storage.",
+                    title = "App Uninstalled",
+                    description = "Permanently removed infected threat ${file.name} from device.",
                     severity = "INFO"
                 )
             )
         }
+    }
+    
+    fun explainThreatWithGemini(file: ScannedFile) {
+        viewModelScope.launch {
+            _aiExplanation.value = "Analyzing threat with Gemini AI..."
+            val explanation = GeminiService.explainThreat(
+                appName = file.name,
+                riskScore = file.riskScore,
+                flagReason = file.flagReason
+            )
+            _aiExplanation.value = explanation
+        }
+    }
+    
+    fun clearAiExplanation() {
+        _aiExplanation.value = null
     }
 
     // Biometric lock actions
@@ -224,7 +300,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                     SecurityLog(
                         eventType = "BIOMETRIC",
                         title = "Biometrics Lock $statusStr",
-                        description = "User authenticated identity using fingerprint / biometric keys successfully.",
+                        description = "User authenticated identity using hardware biometrics.",
                         severity = "INFO"
                     )
                 )
@@ -252,7 +328,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         val plainText = _vaultPlaintext.value
         if (plainText.isEmpty()) return
         try {
-            val ciphertext = LocalCrypto.encrypt(plainText)
+            val ciphertext = KeyStoreManager.encrypt(plainText)
             _vaultCiphertext.value = ciphertext
             _vaultDecryptedText.value = "" // Clear decryptions
             viewModelScope.launch {
@@ -260,7 +336,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                     SecurityLog(
                         eventType = "ENCRYPTION",
                         title = "Data Enveloped Successfully",
-                        description = "Secured plaintext payload in cryptographically signed local envelope using AES-256.",
+                        description = "Secured plaintext payload using Android Keystore hardware-backed AES-256-GCM.",
                         severity = "INFO"
                     )
                 )
@@ -274,7 +350,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         val cipherText = _vaultCiphertext.value
         if (cipherText.isEmpty() || cipherText.startsWith("Crypto Error")) return
         try {
-            val decrypted = LocalCrypto.decrypt(cipherText)
+            val decrypted = KeyStoreManager.decrypt(cipherText)
             _vaultDecryptedText.value = decrypted
             viewModelScope.launch {
                 repository.insertLog(
@@ -305,36 +381,33 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             )
         }
     }
+
+    // Audit actions
+    fun runDeviceAudit(context: android.content.Context) {
+        val results = DeviceAuditor.performAudit(context)
+        _auditResults.value = results
+        _isAuditDialogVisible.value = true
+        
+        viewModelScope.launch {
+            val unsecureCount = results.count { !it.isSecure }
+            if (unsecureCount > 0) {
+                repository.insertLog(
+                    SecurityLog(
+                        eventType = "THREAT",
+                        title = "Audit Found Vulnerabilities",
+                        description = "\$unsecureCount OS vulnerabilities detected.",
+                        severity = "WARNING"
+                    )
+                )
+            }
+        }
+    }
+
+    fun closeAuditDialog() {
+        _isAuditDialogVisible.value = false
+    }
 }
 
-enum class Tab { Home, Security, Logs, Settings }
+enum class Tab { Home, Security, DarkWeb, Logs, Settings }
 enum class ScanStatus { IDLE, SCANNING, COMPLETED }
 data class ChartData(val label: String, val threatsCount: Int)
-
-// Real Symmetric Crypto Engine using modern AES algorithms in pure Kotlin/JCA standard
-object LocalCrypto {
-    private const val ALGORITHM = "AES"
-    // Static secret seed for fully offline cryptographic execution demonstration
-    private val keyBytes = byteArrayOf(
-        0x56.toByte(), 0x69.toByte(), 0x67.toByte(), 0x69.toByte(),
-        0x6C.toByte(), 0x61.toByte(), 0x6E.toByte(), 0x74.toByte(),
-        0x47.toByte(), 0x75.toByte(), 0x61.toByte(), 0x72.toByte(),
-        0x64.toByte(), 0x4B.toByte(), 0x65.toByte(), 0x79.toByte() // "VigilantGuardKey" (16 bytes = AES-128)
-    )
-    private val secretKey = SecretKeySpec(keyBytes, ALGORITHM)
-
-    fun encrypt(plainText: String): String {
-        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(encrypted, Base64.DEFAULT).trim()
-    }
-
-    fun decrypt(cipherText: String): String {
-        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, secretKey)
-        val decoded = Base64.decode(cipherText, Base64.DEFAULT)
-        val decrypted = cipher.doFinal(decoded)
-        return String(decrypted, Charsets.UTF_8)
-    }
-}

@@ -41,10 +41,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import android.content.Intent
+import android.os.Build
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Start Real-Time Protection Service
+        val serviceIntent = Intent(this, com.example.core.services.RealtimeProtectionService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        
         setContent {
             MyApplicationTheme {
                 MainAppScreen()
@@ -62,6 +74,9 @@ fun MainAppScreen(viewModel: SecurityViewModel = viewModel()) {
 
     // Dialog state for Encryption Vault
     var isVaultDialogVisible by remember { mutableStateOf(false) }
+    
+    val isAuditDialogVisible by viewModel.isAuditDialogVisible.collectAsStateWithLifecycle()
+    val auditResults by viewModel.auditResults.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = Modifier
@@ -91,6 +106,7 @@ fun MainAppScreen(viewModel: SecurityViewModel = viewModel()) {
                         onOpenVault = { isVaultDialogVisible = true }
                     )
                     Tab.Security -> SecurityScreen(viewModel = viewModel)
+                    Tab.DarkWeb -> DarkWebScreen()
                     Tab.Logs -> LogsScreen(viewModel = viewModel)
                     Tab.Settings -> SettingsScreen(viewModel = viewModel)
                 }
@@ -111,6 +127,13 @@ fun MainAppScreen(viewModel: SecurityViewModel = viewModel()) {
                 EncryptionVaultDialog(
                     viewModel = viewModel,
                     onDismiss = { isVaultDialogVisible = false }
+                )
+            }
+            
+            if (isAuditDialogVisible) {
+                DeviceAuditDialog(
+                    results = auditResults,
+                    onDismiss = { viewModel.closeAuditDialog() }
                 )
             }
         }
@@ -140,6 +163,7 @@ fun BottomNavigationBar(
             val tabs = listOf(
                 NavigationItem(Tab.Home, "Home", Icons.Default.Home, "tab_home"),
                 NavigationItem(Tab.Security, "Security", Icons.Default.Security, "tab_security"),
+                NavigationItem(Tab.DarkWeb, "Dark Web", Icons.Default.Search, "tab_darkweb"),
                 NavigationItem(Tab.Logs, "Logs", Icons.Default.History, "tab_logs"),
                 NavigationItem(Tab.Settings, "Settings", Icons.Default.Settings, "tab_settings")
             )
@@ -204,6 +228,7 @@ fun HomeScreen(
     val scanStatus by viewModel.scanStatus.collectAsStateWithLifecycle()
     val isBiometricLocked by viewModel.isBiometricLocked.collectAsStateWithLifecycle()
     val logs by viewModel.repositoryAllLogs.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(
         modifier = Modifier
@@ -607,6 +632,45 @@ fun HomeScreen(
                     }
                 }
             }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // Bento Cell 5: OS Security Audit (Col-Span 2)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(28.dp))
+                .background(ThreatGreen.copy(alpha = 0.1f))
+                .border(1.dp, ThreatGreen.copy(alpha = 0.4f), RoundedCornerShape(28.dp))
+                .clickable { viewModel.runDeviceAudit(context) }
+                .padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.SecurityUpdateGood, contentDescription = null, tint = ThreatGreen)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Device Security Audit", fontWeight = FontWeight.Bold, color = CharcoalText)
+                        Text("Scan OS for root, ADB, & exploits", fontSize = 11.sp, color = MutedGrayText)
+                    }
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MutedGrayText)
+            }
         }
     }
 }
@@ -780,10 +844,45 @@ fun SecurityScreen(viewModel: SecurityViewModel) {
                     ThreatItemCard(
                         file = file,
                         onQuarantine = { viewModel.quarantineFile(file) },
-                        onDelete = { viewModel.deleteFileFromDisk(file) }
+                        onDelete = { viewModel.deleteFileFromDisk(file) },
+                        onExplain = { viewModel.explainThreatWithGemini(file) }
                     )
                 }
             }
+        }
+        
+        // AI Explanation Dialog
+        val aiExplanation by viewModel.aiExplanation.collectAsStateWithLifecycle()
+        if (aiExplanation != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearAiExplanation() },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SmartToy,
+                            contentDescription = "AI",
+                            tint = BrandBlue,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Gemini AI Analysis", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Text(
+                        text = aiExplanation!!,
+                        fontSize = 13.sp,
+                        color = CharcoalText
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearAiExplanation() }) {
+                        Text("Got it", fontWeight = FontWeight.Bold)
+                    }
+                },
+                containerColor = Color.White,
+                shape = RoundedCornerShape(16.dp)
+            )
         }
     }
 }
@@ -792,7 +891,8 @@ fun SecurityScreen(viewModel: SecurityViewModel) {
 fun ThreatItemCard(
     file: ScannedFile,
     onQuarantine: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onExplain: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -886,6 +986,23 @@ fun ThreatItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
+                        onClick = onExplain,
+                        border = BorderStroke(1.dp, BrandBlue),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandBlue),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                        modifier = Modifier
+                            .height(32.dp)
+                            .minimumInteractiveComponentSize()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Explain", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedButton(
                         onClick = onQuarantine,
                         border = BorderStroke(1.dp, ThreatYellow),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ThreatYellow),
@@ -897,7 +1014,7 @@ fun ThreatItemCard(
                     ) {
                         Text("Quarantine", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Button(
                         onClick = onDelete,
                         colors = ButtonDefaults.buttonColors(containerColor = ThreatRed),
@@ -1497,5 +1614,59 @@ fun EncryptionVaultDialog(
         },
         containerColor = Color.White,
         shape = RoundedCornerShape(24.dp)
+    )
+}
+
+@Composable
+fun DeviceAuditDialog(
+    results: List<com.example.core.security.AuditResult>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SecurityUpdateGood, contentDescription = null, tint = ThreatGreen, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Device Audit Results", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(results) { result ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (result.isSecure) ThreatGreen.copy(alpha = 0.1f) else ThreatRed.copy(alpha = 0.1f))
+                            .border(1.dp, if (result.isSecure) ThreatGreen.copy(alpha = 0.3f) else ThreatRed.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (result.isSecure) Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = if (result.isSecure) ThreatGreen else ThreatRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(result.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CharcoalText)
+                            Text(result.description, fontSize = 11.sp, color = MutedGrayText, lineHeight = 14.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(16.dp)
     )
 }
