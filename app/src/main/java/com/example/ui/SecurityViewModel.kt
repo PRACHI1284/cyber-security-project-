@@ -7,13 +7,17 @@ import androidx.lifecycle.viewModelScope
 import com.example.core.algorithms.AhoCorasick
 import com.example.core.algorithms.BloomFilter
 import com.example.core.algorithms.RiskScorer
+import com.example.core.security.DeviceAuditor
+import com.example.core.security.AuditResult
 import com.example.core.security.KeyStoreManager
+import com.example.core.services.GeminiService
 import com.example.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.File
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
@@ -93,6 +97,9 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     private val _activeConsoleLog = MutableStateFlow<String>("")
     val activeConsoleLog: StateFlow<String> = _activeConsoleLog.asStateFlow()
 
+    private val _aiExplanation = MutableStateFlow<String?>(null)
+    val aiExplanation: StateFlow<String?> = _aiExplanation.asStateFlow()
+
     // --- Biometric Authentication State ---
     private val _isBiometricLocked = MutableStateFlow(false)
     val isBiometricLocked: StateFlow<Boolean> = _isBiometricLocked.asStateFlow()
@@ -117,6 +124,13 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
     val settingHeuristicLevel = MutableStateFlow("High (Default)")
     val settingAutoUpdate = MutableStateFlow(true)
     val settingRealtimeProtection = MutableStateFlow(true)
+
+    // --- Device Audit State ---
+    private val _isAuditDialogVisible = MutableStateFlow(false)
+    val isAuditDialogVisible: StateFlow<Boolean> = _isAuditDialogVisible.asStateFlow()
+
+    private val _auditResults = MutableStateFlow<List<AuditResult>>(emptyList())
+    val auditResults: StateFlow<List<AuditResult>> = _auditResults.asStateFlow()
 
     // Scanner actions
     fun startScan() {
@@ -249,6 +263,22 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             )
         }
     }
+    
+    fun explainThreatWithGemini(file: ScannedFile) {
+        viewModelScope.launch {
+            _aiExplanation.value = "Analyzing threat with Gemini AI..."
+            val explanation = GeminiService.explainThreat(
+                appName = file.name,
+                riskScore = file.riskScore,
+                flagReason = file.flagReason
+            )
+            _aiExplanation.value = explanation
+        }
+    }
+    
+    fun clearAiExplanation() {
+        _aiExplanation.value = null
+    }
 
     // Biometric lock actions
     fun showBiometricDialog() {
@@ -351,8 +381,33 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             )
         }
     }
+
+    // Audit actions
+    fun runDeviceAudit(context: android.content.Context) {
+        val results = DeviceAuditor.performAudit(context)
+        _auditResults.value = results
+        _isAuditDialogVisible.value = true
+        
+        viewModelScope.launch {
+            val unsecureCount = results.count { !it.isSecure }
+            if (unsecureCount > 0) {
+                repository.insertLog(
+                    SecurityLog(
+                        eventType = "THREAT",
+                        title = "Audit Found Vulnerabilities",
+                        description = "\$unsecureCount OS vulnerabilities detected.",
+                        severity = "WARNING"
+                    )
+                )
+            }
+        }
+    }
+
+    fun closeAuditDialog() {
+        _isAuditDialogVisible.value = false
+    }
 }
 
-enum class Tab { Home, Security, Logs, Settings }
+enum class Tab { Home, Security, DarkWeb, Logs, Settings }
 enum class ScanStatus { IDLE, SCANNING, COMPLETED }
 data class ChartData(val label: String, val threatsCount: Int)

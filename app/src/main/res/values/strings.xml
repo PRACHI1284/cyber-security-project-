@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Vigilant Guard</string>
+    <string name="accessibility_service_description">Vigilant Guard needs Accessibility access to monitor foreground apps and lock protected applications.</string>
 </resources>
