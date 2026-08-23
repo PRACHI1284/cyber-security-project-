@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.File
 
 class SecurityViewModel(application: Application) : AndroidViewModel(application) {
     private val database = SecurityDatabase.getDatabase(application)

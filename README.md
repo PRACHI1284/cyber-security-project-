@@ -17,6 +17,15 @@
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-7F52FF?style=for-the-badge&logo=kotlin)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android)](https://developer.android.com/jetpack/compose)
 
+<br/>
+
+### ⬇️ Get the App
+
+[![Download APK](https://img.shields.io/badge/Download%20APK-Latest%20Build-brightgreen?style=for-the-badge&logo=android)](https://github.com/PRACHI1284/cyber-security-project-/releases/latest/download/app-debug.apk)
+
+> **One-tap install**: Download the APK → open it on your Android device → tap Install.
+> *(If prompted, enable **Settings → Security → Install Unknown Apps** for your browser/file manager.)*
+
 </div>
 
 <br/>
@@ -125,5 +134,5 @@ This project is fully integrated with **GitHub Actions**. Every commit to the `m
 ---
 <div align="center">
 <i>Securing the mobile frontier, one device at a time.</i> <br/>
-Developed with 💙 by <b>P R A C H I</b> and contributors.
+Developed with 💙 by <b>P R A C H I</b> &nbsp;|&nbsp; Contributor: <b><a href="https://github.com/Detox10">Himanshu Bawane (@Detox10)</a></b>
 </div>
