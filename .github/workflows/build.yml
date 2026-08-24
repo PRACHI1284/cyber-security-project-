@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build & Release Android APK
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
+
+permissions:
+  contents: write   # Required to create GitHub Releases
 
 jobs:
   build:
@@ -20,16 +23,41 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        # Removed 'cache: gradle' because it crashes when gradlew is missing
 
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper
+    # Official Gradle action — handles wrapper generation automatically,
+    # caches dependencies, and does NOT require 'gradle' to be on $PATH.
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
 
     - name: Build Debug APK
       run: ./gradlew assembleDebug
 
-    - name: Upload APK for Download
+    # Keep the artifact upload for the Actions tab (easy access during PRs)
+    - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: VigilantGuard-Android-App
         path: app/build/outputs/apk/debug/app-debug.apk
+        if-no-files-found: error
+
+    # Publish as a GitHub Release so users get a direct, static download URL.
+    # Only runs on pushes to main (not on pull_request events).
+    - name: Publish GitHub Release
+      if: github.event_name != 'pull_request'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: latest-build
+        name: "VigilantGuard – Latest Build"
+        body: |
+          🛡️ **VigilantGuard** – Automated debug build from the latest commit on `main`.
+
+          ### Install
+          1. Download `VigilantGuard.apk` below.
+          2. On your Android device: **Settings → Security → Allow Unknown Sources**.
+          3. Open the downloaded file and tap **Install**.
+
+          > Built from commit: ${{ github.sha }}
+        files: app/build/outputs/apk/debug/app-debug.apk
+        token: ${{ secrets.GITHUB_TOKEN }}
+        prerelease: false
+        make_latest: true
