@@ -27,7 +27,7 @@ class AppLockAccessibilityService : AccessibilityService() {
             // Avoid repeatedly launching overlay for the same app
             if (packageName != lastPackage && packageName != this.packageName) {
                 lastPackage = packageName
-                Log.d(TAG, "Window state changed, new package: \$packageName")
+                Log.d(TAG, "Window state changed, new package: $packageName")
                 
                 if (protectedApps.contains(packageName)) {
                     Log.d(TAG, "Protected app launched! Showing lock screen.")

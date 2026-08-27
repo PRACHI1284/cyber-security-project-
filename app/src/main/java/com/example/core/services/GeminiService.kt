@@ -34,9 +34,9 @@ object GeminiService {
             return@withContext "API Key missing. Please configure GEMINI_API_KEY in your local.properties or .env file to enable AI Threat Analysis."
         }
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=\$API_KEY"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$API_KEY"
 
-        val prompt = "You are a mobile cybersecurity expert. Explain to a non-technical user why the Android app '\$appName' is considered a threat. It was flagged with a risk score of \$riskScore/100 for the following reason: '\$flagReason'. Keep the explanation under 4 sentences and be clear about the potential dangers."
+        val prompt = "You are a mobile cybersecurity expert. Explain to a non-technical user why the Android app '$appName' is considered a threat. It was flagged with a risk score of $riskScore/100 for the following reason: '$flagReason'. Keep the explanation under 4 sentences and be clear about the potential dangers."
 
         val jsonBody = JSONObject().apply {
             put("contents", JSONArray().apply {
@@ -57,7 +57,7 @@ object GeminiService {
 
         try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext "Error analyzing threat: HTTP \${response.code}"
+                if (!response.isSuccessful) return@withContext "Error analyzing threat: HTTP ${response.code}"
                 
                 val responseBody = response.body?.string() ?: return@withContext "Empty response from AI"
                 val jsonObject = JSONObject(responseBody)

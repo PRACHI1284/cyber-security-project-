@@ -395,7 +395,7 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
                     SecurityLog(
                         eventType = "THREAT",
                         title = "Audit Found Vulnerabilities",
-                        description = "\$unsecureCount OS vulnerabilities detected.",
+                        description = "$unsecureCount OS vulnerabilities detected.",
                         severity = "WARNING"
                     )
                 )

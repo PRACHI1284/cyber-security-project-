@@ -95,7 +95,7 @@ class RealtimeProtectionService : Service() {
                     val log = SecurityLog(
                         eventType = "THREAT",
                         title = "Real-Time Threat Detected!",
-                        description = "Intercepted malicious installation: \$appName. Risk: \$riskScore%",
+                        description = "Intercepted malicious installation: $appName. Risk: $riskScore%",
                         severity = "HIGH"
                     )
                     database.securityDao().insertLog(log)
@@ -103,7 +103,7 @@ class RealtimeProtectionService : Service() {
                     showThreatNotification(appName)
                 }
             } catch (e: Exception) {
-                Log.e("RealtimeProtection", "Error scanning package: \$packageName", e)
+                Log.e("RealtimeProtection", "Error scanning package: $packageName", e)
             }
         }
     }
@@ -140,7 +140,7 @@ class RealtimeProtectionService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notification = NotificationCompat.Builder(this, "threat_alerts")
             .setContentTitle("Malicious App Blocked")
-            .setContentText("VigilantGuard intercepted \$appName during installation.")
+            .setContentText("VigilantGuard intercepted $appName during installation.")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

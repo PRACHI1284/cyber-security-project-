@@ -201,11 +201,11 @@ fun DarkWebScreen(viewModel: DarkWebViewModel = viewModel()) {
                                     Text(breach.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CharcoalText)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Domain: \${breach.domain} • Date: \${breach.breachDate}", fontSize = 11.sp, color = MutedGrayText)
+                                Text("Domain: ${breach.domain} • Date: ${breach.breachDate}", fontSize = 11.sp, color = MutedGrayText)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(breach.description, fontSize = 12.sp, color = CharcoalText, lineHeight = 16.sp)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Compromised Data: \${breach.dataClasses.joinToString(", ")}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThreatRed)
+                                Text("Compromised Data: ${breach.dataClasses.joinToString(", ")}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThreatRed)
                             }
                         }
                     }
